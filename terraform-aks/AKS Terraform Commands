@@ -1,0 +1,206 @@
+# Source: https://gist.github.com/7d7ead3378d65b22eb1d3e13e53dd8d6
+
+###############################
+# Preparing For The Exercises #
+###############################
+
+git clone https://github.com/vfarcic/devops-catalog-code.git
+
+cd devops-catalog-code
+
+git pull
+
+cd terraform-aks
+
+#################################
+# Exploring Terraform Variables #
+#################################
+
+cp files/variables.tf .
+
+cat variables.tf
+
+############################
+# Creating The Credentials #
+############################
+
+az login
+
+az group create \
+    --name devops-catalog-aks \
+    --location eastus
+
+az group list
+
+cp files/provider.tf .
+
+cat provider.tf
+
+terraform apply
+
+terraform init
+
+terraform apply
+
+#########################################
+# Storing The State In A Remote Backend #
+#########################################
+
+cat terraform.tfstate
+
+cat files/storage.tf \
+  | sed -e "s@devopscatalog@doc$(date +%Y%m%d%H%M%S)@g" \
+  | tee storage.tf
+
+cat storage.tf
+
+terraform apply
+
+az storage account list
+
+az storage container list \
+    --account-name doc20230731202525
+
+terraform show
+
+cat terraform.tfstate
+
+cp files/backend.tf .
+
+cat backend.tf
+
+terraform apply
+
+terraform init
+
+terraform apply
+
+##############################
+# Creating The Control Plane #
+##############################
+
+cp files/k8s-control-plane.tf .
+
+cat k8s-control-plane.tf
+
+az aks get-versions --location eastus
+
+export K8S_VERSION=[...] # e.g., 1.16.7
+
+terraform apply \
+    --var k8s_version=$K8S_VERSION
+
+###############################
+# Exploring Terraform Outputs #
+###############################
+
+cp files/output.tf .
+
+cat output.tf
+
+terraform refresh \
+    --var k8s_version=$K8S_VERSION
+
+terraform output cluster_name
+
+export KUBECONFIG=$PWD/kubeconfig
+
+az aks get-credentials \
+    --name \
+    $(terraform output --raw cluster_name) \
+    --resource-group \
+    $(terraform output --raw resource_group) \
+    --file \
+    KUBECONFIG
+
+
+kubectl get nodes
+
+#########################
+# Creating Worker Nodes #
+#########################
+
+cp files/k8s-worker-nodes.tf .
+
+cat k8s-worker-nodes.tf
+
+terraform apply \
+    --var k8s_version=$K8S_VERSION
+
+kubectl get nodes
+
+rm -f k8s-worker-nodes.tf
+
+terraform apply \
+    --var k8s_version=$K8S_VERSION
+
+kubectl get nodes
+
+#########################
+# Upgrading The Cluster #
+#########################
+
+kubectl version --output yaml
+
+az aks get-versions \
+    --location \
+    $(terraform output --raw region)
+
+export K8S_VERSION=[...]
+
+terraform apply \
+    --var k8s_version=$K8S_VERSION
+
+kubectl version --output yaml
+
+##########################################################
+# Dealing With A Bug That Prevents Upgrade Of Node Pools #
+##########################################################
+
+kubectl get nodes
+
+az aks nodepool upgrade \
+    --cluster-name \
+    $(terraform output --raw cluster_name) \
+    --name \
+    $(terraform output --raw cluster_name) \
+    --resource-group \
+    $(terraform output --raw resource_group) \
+    --kubernetes-version \
+    $K8S_VERSION
+
+kubectl get nodes
+
+################################
+# Reorganizing The Definitions #
+################################
+
+rm -f *.tf
+
+cat \
+    files/backend.tf \
+    files/k8s-control-plane.tf \
+    files/provider.tf \
+    files/storage.tf \
+    | tee main.tf
+
+cp files/variables.tf .
+
+cat variables.tf
+
+cp files/output.tf .
+
+cat output.tf
+
+terraform apply \
+    --var k8s_version=$K8S_VERSION
+
+############################
+# Destroying The Resources #
+############################
+
+terraform destroy \
+    --var k8s_version=$K8S_VERSION \
+    --target azurerm_kubernetes_cluster.primary
+
+cd ../../
